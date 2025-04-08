@@ -1,23 +1,30 @@
-import deleteCloudinary from "@/helpers/deleteCloudinary";
-import uploadCloudinary from "@/helpers/uploadCloudinary";
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import dbConnect from "@/lib/dbConnect";
 import Product from "@/models/product.model";
-import { getServerSession } from "next-auth";
-import { NextRequest, NextResponse } from "next/server";
+import uploadCloudinary from "@/helpers/uploadCloudinary";
+import deleteCloudinary from "@/helpers/deleteCloudinary";
+
+// Context type
+type ParamsContext = {
+  params: { id: string };
+};
 
 // GET: Fetch single product by id
 export async function GET(
   req: NextRequest,
-  context: { params: { id: string } }
-) {
+  context: ParamsContext
+): Promise<NextResponse> {
   try {
     const { id } = context.params;
     await dbConnect();
+
     const product = await Product.findById(id);
     if (!product) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
+
     return NextResponse.json(product, { status: 200 });
   } catch (error) {
     return NextResponse.json(
@@ -27,11 +34,11 @@ export async function GET(
   }
 }
 
-// PUT: update product by id
+// PUT: Update product by id
 export async function PUT(
   req: NextRequest,
-  context: { params: { id: string } }
-) {
+  context: ParamsContext
+): Promise<NextResponse> {
   try {
     const session = await getServerSession(authOptions);
     if (!session || session.user?.role !== "admin") {
@@ -42,11 +49,10 @@ export async function PUT(
     }
 
     await dbConnect();
-
     const { id } = context.params;
     const formData = await req.formData();
 
-    // extracting form fields
+    // Extract fields
     const name = formData.get("name") as string;
     const description = formData.get("description") as string;
     const price = formData.get("price")
@@ -60,41 +66,31 @@ export async function PUT(
       ? parseFloat(formData.get("ratings") as string)
       : undefined;
 
-    // get images from formData
     const imagesFiles = formData.getAll("images") as File[];
     let uploadedImages = [] as any;
 
-    // find the existing product
     const existingProduct = await Product.findById(id);
     if (!existingProduct) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
-    if (imagesFiles.length) {
-      // delete old images from cloudinary
-      if (existingProduct.images?.length) {
-        const oldImagePublicIds = existingProduct.images.map(
-          (img: any) => img.public_id
-        );
-        await deleteCloudinary(oldImagePublicIds); // Now passing an array correctly
-      }
+    // Handle image replacement
+    if (imagesFiles.length > 0) {
+      const oldImagePublicIds = existingProduct.images.map(
+        (img: any) => img.public_id
+      );
+      await deleteCloudinary(oldImagePublicIds);
 
-      // convert files to buffers and upload new images
       const imageBuffers = await Promise.all(
-        imagesFiles.map(async (file, index) => {
-          console.log(
-            `Processing image ${index + 1}: ${file.name}, size: ${file.size}`
-          );
+        imagesFiles.map(async (file) => {
           const arrayBuffer = await file.arrayBuffer();
           return Buffer.from(arrayBuffer);
         })
       );
 
       uploadedImages = await uploadCloudinary(imageBuffers, "products");
-      console.log("Uploaded images:", uploadedImages);
     }
 
-    // find the product and update fields
     const updatedProduct = await Product.findByIdAndUpdate(
       id,
       {
@@ -104,35 +100,27 @@ export async function PUT(
         ...(category && { category }),
         ...(stock !== undefined && { stock }),
         ...(ratings !== undefined && { ratings }),
-        ...(uploadedImages.length > 0 && { images: uploadedImages }), // Update images only if new ones are uploaded
+        ...(uploadedImages.length > 0 && { images: uploadedImages }),
       },
       { new: true, runValidators: true }
     );
 
-    if (!updatedProduct) {
-      return NextResponse.json({ error: "Product not found" }, { status: 404 });
-    }
-
     return NextResponse.json(updatedProduct, { status: 200 });
   } catch (error) {
-    console.error("Error in PUT /api/products/[id]:", error);
+    console.error("PUT /api/products/[id] error:", error);
     return NextResponse.json(
-      {
-        error: "Internal server error",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
+      { error: "Internal server error", message: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
     );
   }
 }
 
-// DELETE: remove a product by id
+// DELETE: Delete product by id
 export async function DELETE(
   req: NextRequest,
-  context: { params: { id: string } }
-) {
+  context: ParamsContext
+): Promise<NextResponse> {
   try {
-    // Check admin session
     const session = await getServerSession(authOptions);
     if (!session || session.user?.role !== "admin") {
       return NextResponse.json(
@@ -142,23 +130,18 @@ export async function DELETE(
     }
 
     const { id } = context.params;
-    // connect to DB
     await dbConnect();
 
-    // find product
     const product = await Product.findById(id);
     if (!product) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
-    // delete all images associated with this product Cloudinary
     if (product.images?.length > 0) {
       const oldImagePublicIds = product.images.map((img: any) => img.public_id);
-      await deleteCloudinary(oldImagePublicIds); // Pass array of `public_id`s
-      console.log("All images deleted successfully from Cloudinary.");
+      await deleteCloudinary(oldImagePublicIds);
     }
 
-    // delete product from DB
     await Product.findByIdAndDelete(id);
 
     return NextResponse.json(
@@ -166,12 +149,9 @@ export async function DELETE(
       { status: 200 }
     );
   } catch (error) {
-    console.error("Error in DELETE /api/products:", error);
+    console.error("DELETE /api/products/[id] error:", error);
     return NextResponse.json(
-      {
-        error: "Internal server error",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
+      { error: "Internal server error", message: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
     );
   }
