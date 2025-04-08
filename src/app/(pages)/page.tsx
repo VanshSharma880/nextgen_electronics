@@ -10,6 +10,7 @@ import { CategoryFilter } from "@/components/category-filter";
 import Products from "./products/page";
 import AIModel from "@/components/user/AIModel";
 import { useSession } from "next-auth/react";
+import ProductList from "@/components/ProductList";
 
 const Home = () => {
   const { data: session } = useSession();
@@ -92,9 +93,9 @@ const Home = () => {
           }}
         />
         {/* Pass limit prop to Products component */}
-        <Products
+        <ProductList
           selectedCategory={selectedCategory}
-          limit={showAllProducts ? undefined : 4} // Show 3 products (1 row) by default
+          limit={showAllProducts ? undefined : 4}
         />
         {/* Show More Button */}
         {!showAllProducts && (
