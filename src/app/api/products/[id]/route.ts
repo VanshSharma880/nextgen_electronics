@@ -6,36 +6,34 @@ import Product from "@/models/product.model";
 import uploadCloudinary from "@/helpers/uploadCloudinary";
 import deleteCloudinary from "@/helpers/deleteCloudinary";
 
-// 🧠 Helper to extract ID from URL
+// Utility to extract ID from dynamic route
 const getIdFromRequest = (req: NextRequest) => {
   const path = req.nextUrl.pathname;
   const segments = path.split("/");
-  return segments[segments.length - 1]; // grab the [id]
+  return segments[segments.length - 1];
 };
 
-// GET: Fetch single product by id
+// GET /api/products/[id]
 export async function GET(req: NextRequest) {
   try {
     const id = getIdFromRequest(req);
     await dbConnect();
-
     const product = await Product.findById(id);
     if (!product) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
-
-    return NextResponse.json(product, { status: 200 });
+    return NextResponse.json(product);
   } catch (error) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
-// PUT: Update product by id
+// PUT /api/products/[id]
 export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session || session.user?.role !== "admin") {
-      return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const id = getIdFromRequest(req);
@@ -50,28 +48,24 @@ export async function PUT(req: NextRequest) {
     const ratings = formData.get("ratings") ? parseFloat(formData.get("ratings") as string) : undefined;
     const imagesFiles = formData.getAll("images") as File[];
 
-    let uploadedImages = [] as any[];
+    const product = await Product.findById(id);
+    if (!product) return NextResponse.json({ error: "Product not found" }, { status: 404 });
 
-    const existingProduct = await Product.findById(id);
-    if (!existingProduct) {
-      return NextResponse.json({ error: "Product not found" }, { status: 404 });
-    }
+    let uploadedImages = [] as any;
 
     if (imagesFiles.length > 0) {
-      const oldImagePublicIds = existingProduct.images.map((img: any) => img.public_id);
-      await deleteCloudinary(oldImagePublicIds);
-
+      const oldPublicIds = product.images.map((img: any) => img.public_id);
+      await deleteCloudinary(oldPublicIds);
       const imageBuffers = await Promise.all(
         imagesFiles.map(async (file) => {
           const arrayBuffer = await file.arrayBuffer();
           return Buffer.from(arrayBuffer);
         })
       );
-
       uploadedImages = await uploadCloudinary(imageBuffers, "products");
     }
 
-    const updatedProduct = await Product.findByIdAndUpdate(
+    const updated = await Product.findByIdAndUpdate(
       id,
       {
         ...(name && { name }),
@@ -85,36 +79,34 @@ export async function PUT(req: NextRequest) {
       { new: true, runValidators: true }
     );
 
-    return NextResponse.json(updatedProduct, { status: 200 });
+    return NextResponse.json(updated);
   } catch (error) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
-// DELETE: Delete product by id
+// DELETE /api/products/[id]
 export async function DELETE(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session || session.user?.role !== "admin") {
-      return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const id = getIdFromRequest(req);
     await dbConnect();
 
     const product = await Product.findById(id);
-    if (!product) {
-      return NextResponse.json({ error: "Product not found" }, { status: 404 });
-    }
+    if (!product) return NextResponse.json({ error: "Product not found" }, { status: 404 });
 
     if (product.images?.length > 0) {
-      const oldImagePublicIds = product.images.map((img: any) => img.public_id);
-      await deleteCloudinary(oldImagePublicIds);
+      const publicIds = product.images.map((img: any) => img.public_id);
+      await deleteCloudinary(publicIds);
     }
 
     await Product.findByIdAndDelete(id);
 
-    return NextResponse.json({ message: "Product deleted successfully" }, { status: 200 });
+    return NextResponse.json({ message: "Product deleted successfully" });
   } catch (error) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
